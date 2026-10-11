@@ -1,0 +1,36 @@
+; EACLoader 配置示例
+;
+; --- 路径 ---
+; GameDir    : 游戏根目录（同时作为子进程工作目录）
+; GameExe    : 相对 GameDir 的可执行路径，必须指向真游戏，不能指向 start_protected_game.exe
+; InjectDll  : 要注入的 DLL，分号分隔可写多个，留空则只注入 EAC payload
+;
+; --- 行为 ---
+; Launch     : direct = 直接拉起游戏(绕过 EAC 启动器)，单机用这个
+;              eac    = 先启动 EasyAntiCheat_EOS 服务，再拉起游戏(EAC 在场)
+;              watch  = 本 exe 常驻等待，你自己启动游戏，检测到进程后自动注入
+; Mode       : stub = 桩掉 8 个 EOS 反作弊出口(EAC 不在场)
+;              filter = EAC 照常运行，只接管汇报通道
+; Report     : drop = 丢弃 EAC 上报；pass = 放行(仅 Mode=filter 有意义)
+; InjectDelay: 注入用户 DLL 前等待的毫秒数，给游戏留初始化时间
+; ProcessName: watch 模式下要等待的进程名
+; WatchTimeout: watch 模式等待秒数
+; PauseOnExit: 1 = 结束时保留控制台窗口等待回车；0 = 直接退出
+; Args       : 追加给游戏的命令行参数
+
+[EACBypass]
+GameDir=<游戏根目录，例如 D:\Steam\steamapps\common\The Outlast Trials>
+GameExe=OPP\Binaries\Win64\TOTClient-Win64-Shipping.exe
+InjectDll=
+Launch=direct
+Mode=stub
+Report=drop
+InjectMode=internal
+BlockRelaunch=1
+SteamAppId=1304930
+Mirror=0
+InjectDelay=60000
+ProcessName=TOTClient-Win64-Shipping.exe
+WatchTimeout=300
+PauseOnExit=0
+Args=

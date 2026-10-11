@@ -1,0 +1,282 @@
+
+#include "Generators/Generator.h"
+#include "Managers/StructManager.h"
+#include "Managers/EnumManager.h"
+#include "Managers/MemberManager.h"
+#include "Managers/PackageManager.h"
+
+#include "HashStringTable.h"
+#include "Utils.h"
+
+#include "Platform.h"
+#include "Json/json.hpp"
+
+#include "Settings.h"
+#include "Unreal/NameArray.h"
+#include "Unreal/UnrealTypes.h"
+
+#include <fstream>
+
+inline void InitSettings()
+{
+	Settings::InitWeakObjectPtrSettings();
+	Settings::InitLargeWorldCoordinateSettings();
+
+	Settings::InitObjectPtrPropertySettings();
+	Settings::InitArrayDimSizeSettings();
+}
+
+/* Stage log to file, a crash otherwise leaves nothing behind.
+   The log follows SDKGenerationPath so it always sits next to the dump. */
+void StageLog(const char* Message)
+{
+	static std::filesystem::path LogPath;
+	if (LogPath.empty())
+	{
+		std::error_code ec;
+		std::filesystem::create_directories(Settings::Generator::SDKGenerationPath, ec);
+		LogPath = std::filesystem::path(Settings::Generator::SDKGenerationPath) / "dumper7_stage.log";
+	}
+
+	std::ofstream TraceFile(LogPath, std::ios::app);
+	TraceFile << Message << "\n";
+	TraceFile.flush();
+
+	std::cerr << "[stage] " << Message << "\n";
+}
+
+/* Guard each step so one failure does not kill the run. */
+#define DEFINE_STAGE_GUARD(Name, Call)                 \
+	static void Guard_##Name()                         \
+	{                                                  \
+		StageLog("enter " #Name);                      \
+		__try                                          \
+		{                                              \
+			Call;                                      \
+			StageLog("ok " #Name);                     \
+		}                                              \
+		__except (EXCEPTION_EXECUTE_HANDLER)           \
+		{                                              \
+			StageLog("CRASH " #Name);                  \
+		}                                              \
+	}
+
+DEFINE_STAGE_GUARD(ObjectArrayInit, ObjectArray::Init())
+DEFINE_STAGE_GUARD(OffInit, Off::Init())
+DEFINE_STAGE_GUARD(PropertySizesInit, PropertySizes::Init())
+DEFINE_STAGE_GUARD(InitPE, CALL_PLATFORM_SPECIFIC_FUNCTION(Off::InSDK::ProcessEvent::InitPE))
+DEFINE_STAGE_GUARD(InitGWorld, Off::InSDK::World::InitGWorld())
+DEFINE_STAGE_GUARD(InitTextOffsets, Off::InSDK::Text::InitTextOffsets())
+DEFINE_STAGE_GUARD(InitSettingsAll, InitSettings())
+DEFINE_STAGE_GUARD(PackageManagerInit, PackageManager::Init())
+DEFINE_STAGE_GUARD(StructManagerInit, StructManager::Init())
+DEFINE_STAGE_GUARD(EnumManagerInit, EnumManager::Init())
+DEFINE_STAGE_GUARD(MemberManagerInit, MemberManager::Init())
+DEFINE_STAGE_GUARD(PackageManagerPostInit, PackageManager::PostInit())
+
+static void Guard_FNameInit()
+{
+	StageLog("enter FNameInit");
+
+	__try
+	{
+		if (Settings::Config::GNamesOffset != 0)
+		{
+			FName::Init(Settings::Config::GNamesOffset, FName::EOffsetOverrideType::GNames, /*bIsNamePool=*/true);
+
+			if (!NameArray::IsInitialized())
+				CALL_PLATFORM_SPECIFIC_FUNCTION(FName::Init); // fallback to auto-detect
+		}
+		else
+		{
+			CALL_PLATFORM_SPECIFIC_FUNCTION(FName::Init);
+		}
+
+		StageLog(NameArray::IsInitialized() ? "ok FNameInit" : "FAILED FNameInit (no GNames)");
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		StageLog("CRASH FNameInit");
+	}
+}
+
+
+void Generator::InitEngineCore()
+{
+	/* manual override */
+	//ObjectArray::Init(/*GObjects*/, /*Layout = Default*/); // FFixedUObjectArray (UEVersion < UE4.21)
+	//ObjectArray::Init(/*GObjects*/, /*ChunkSize*/, /*Layout = Default*/); // FChunkedFixedUObjectArray (UEVersion >= UE4.21)
+
+	//FName::Init(/*bForceGNames = false*/);
+	//FName::Init(/*AppendString, FName::EOffsetOverrideType::AppendString*/);
+	//FName::Init(/*ToString, FName::EOffsetOverrideType::ToString*/);
+	//FName::Init(/*GNames, FName::EOffsetOverrideType::GNames, true/false*/);
+ 
+	//Off::InSDK::ProcessEvent::InitPE(/*PEIndex*/);
+
+	/* Back4Blood (requires manual GNames override) */
+	//InitObjectArrayDecryption([](void* ObjPtr) -> uint8* { return reinterpret_cast<uint8*>(uint64(ObjPtr) ^ 0x8375); });
+
+	/* Multiversus [Unsupported, weird GObjects-struct] */
+	//InitObjectArrayDecryption([](void* ObjPtr) -> uint8* { return reinterpret_cast<uint8*>(uint64(ObjPtr) ^ 0x1B5DEAFD6B4068C); });
+
+	StageLog("=== InitEngineCore ===");
+
+	Guard_ObjectArrayInit();
+
+	/*
+	 * The Outlast Trials (RBG engine fork) does not match Dumper-7's FNamePool
+	 * constructor signature (lea+call not adjacent, SRWLock via call r14), so
+	 * auto-detection fails; GNamesOffset in the ini handles that.
+	*/
+	Guard_FNameInit();
+
+	Guard_OffInit();
+	Guard_PropertySizesInit();
+
+	Guard_InitPE();       // Must be at this position, relies on offsets initialized in Off::Init()
+
+	Guard_InitGWorld();   // Must be at this position, relies on offsets initialized in Off::Init()
+
+	Guard_InitTextOffsets(); // Must be at this position, relies on offsets initialized in Off::InitPE()
+
+	Guard_InitSettingsAll();
+
+	StageLog("=== InitEngineCore done ===");
+}
+
+void Generator::InitInternal()
+{
+	StageLog("=== InitInternal ===");
+
+	// Initialize PackageManager with all packages, their names, structs, classes enums, functions and dependencies
+	Guard_PackageManagerInit();
+
+	// Initialize StructManager with all structs and their names
+	Guard_StructManagerInit();
+	
+	// Initialize EnumManager with all enums and their names
+	Guard_EnumManagerInit();
+	
+	// Initialized all Member-Name collisions
+	Guard_MemberManagerInit();
+
+	// Post-Initialize PackageManager after StructManager has been initialized. 'PostInit()' handles Cyclic-Dependencies detection
+	Guard_PackageManagerPostInit();
+
+	StageLog("=== InitInternal done ===");
+}
+
+bool Generator::SetupDumperFolder()
+{
+	try
+	{
+		std::string FolderName = (Settings::Generator::GameVersion + '-' + Settings::Generator::GameName);
+
+		FileNameHelper::MakeValidFileName(FolderName);
+
+		DumperFolder = fs::path(Settings::Generator::SDKGenerationPath) / FolderName;
+
+		if (fs::exists(DumperFolder))
+		{
+			fs::path Old = DumperFolder.generic_string() + "_OLD";
+
+			fs::remove_all(Old);
+
+			fs::rename(DumperFolder, Old);
+		}
+
+		fs::create_directories(DumperFolder);
+	}
+	catch (const std::filesystem::filesystem_error& fe)
+	{
+		std::cerr << "Could not create required folders! Info: \n";
+		std::cerr << fe.what() << std::endl;
+		return false;
+	}
+
+	return true;
+}
+
+bool Generator::SetupFolders(std::string& FolderName, fs::path& OutFolder)
+{
+	fs::path Dummy;
+	std::string EmptyName = "";
+	return SetupFolders(FolderName, OutFolder, EmptyName, Dummy);
+}
+
+bool Generator::SetupFolders(std::string& FolderName, fs::path& OutFolder, std::string& SubfolderName, fs::path& OutSubFolder)
+{
+	FileNameHelper::MakeValidFileName(FolderName);
+	FileNameHelper::MakeValidFileName(SubfolderName);
+
+	try
+	{
+		OutFolder = DumperFolder / FolderName;
+		OutSubFolder = OutFolder / SubfolderName;
+				
+		if (fs::exists(OutFolder))
+		{
+			fs::path Old = OutFolder.generic_string() + "_OLD";
+
+			fs::remove_all(Old);
+
+			fs::rename(OutFolder, Old);
+		}
+
+		fs::create_directories(OutFolder);
+
+		if (!SubfolderName.empty())
+			fs::create_directories(OutSubFolder);
+	}
+	catch (const std::filesystem::filesystem_error& fe)
+	{
+		std::cerr << "Could not create required folders! Info: \n";
+		std::cerr << fe.what() << std::endl;
+		return false;
+	}
+
+	return true;
+}
+
+
+void DumpEditorOnlyMetadata(const fs::path& DumperFolder)
+{
+	if (Off::FField::EditorOnlyMetadata == -1)
+		return;
+
+	nlohmann::json MetadataJson;
+	MetadataJson["GameName"] = Settings::Generator::GameName;
+	MetadataJson["GameVersion"] = Settings::Generator::GameVersion;
+
+	for (UEObject Obj : ObjectArray())
+	{
+		if (!Obj.IsA(EClassCastFlags::Struct))
+			continue;
+
+		UEStruct Struct = Obj.Cast<UEStruct>();
+
+		auto ChildProperties = Struct.GetProperties();
+
+		if (ChildProperties.empty())
+			continue;
+
+		auto& StructMembers = MetadataJson[Struct.GetCppName()];
+
+		for (UEProperty Prop : Struct.GetProperties())
+		{
+			auto& Entries = StructMembers[Prop.GetValidName()];
+
+			for (const auto& [Key, Value] : Prop.Cast<UEFField>().GetMetaData())
+			{
+				if (Key.empty() && Value.empty())
+					continue;
+
+				Entries[Key] = Value;
+			}
+		}
+	}
+
+	std::ofstream MetadataFile(DumperFolder / "Metadata.json");
+	MetadataFile << MetadataJson.dump(4);
+}
