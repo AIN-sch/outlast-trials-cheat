@@ -48,7 +48,7 @@ GameVersion=5.5.0
 
 ### 改源码
 
-改过的文件都扔在 `dumper7-patch/` 了，就这几个：
+改过的文件都扔在 `2026.10.13/dumper7-patch/` 了，就这几个：
 
 `Settings.h` / `Settings.cpp` 里加了个 `GNamesOffset` 配置项。注意解析得用 `strtoul(..., 16)`，`GetPrivateProfileIntA` 不认十六进制，你写 `0x6EB2C00` 它读出来是 0。顺手也把 `GameName`/`GameVersion` 读了。
 
@@ -113,7 +113,7 @@ Generating SDK took (6659.48ms)
 
 ### 具体实现
 
-代码在 `eac-bypass/`。写了个 loader，它干这些事：
+代码在 `2026.10.13/eac-bypass/`。写了个 loader，它干这些事：
 
 把游戏拉起来（`Launch=direct` 直接拉 exe，`Launch=eac` 先起 EAC 服务再拉），然后趁 EAC 还没把回调挂上的时候把 payload 注进去。
 
@@ -121,7 +121,7 @@ payload 在游戏进程里干这几件：
 
 改导入表（IAT、延迟导入、导出表都改），把 8 个反作弊函数全换掉；盯着 `CreateProcessW`，游戏要是想自己去拉 EAC 引导器就直接拒（`BlockRelaunch=1`）；还有 `CrashReportClient.exe` 也要拒 —— 那玩意崩的时候会上传 minidump，里面带模块列表，这个不能让它跑；最后把自己从 PEB 模块链表里摘掉。
 
-配置长这样，`eac-bypass/cfg/` 里有示例：
+配置长这样，`2026.10.13/eac-bypass/cfg/` 里有示例：
 
 ```ini
 Launch=direct      ; direct=直接拉游戏 / eac=先起 EAC 服务
@@ -179,7 +179,7 @@ OpenProcess(PROCESS_ALL_ACCESS) → 成功（提权后）
 
 连裸 syscall 都被拒，那拦截就在内核里，用户态怎么绕都没用。提权也没用 —— 句柄给你了，读的时候不给。
 
-`tools/read_routes.py` 就是测这个的，你可以自己复现。
+`2026.10.13/tools/read_routes.py` 就是测这个的，你可以自己复现。
 
 现在的局面就是：
 
@@ -220,7 +220,7 @@ UCharacterMovement::MaxWalkSpeed         0x1AC
 
 还有，`Default__` 前缀那批是类的默认对象（CDO），不在场景里，得滤掉，不然你的列表里全是它们。
 
-完整 SDK 在 `sdk/`，CppSDK 一千四百多个文件，外加 UE 的 usmap 和 IDA 用的 idmap，查东西直接翻。
+完整 SDK 在 `2026.10.13/sdk/`，CppSDK 一千四百多个文件，外加 UE 的 usmap 和 IDA 用的 idmap，查东西直接翻。
 
 ---
 
@@ -250,7 +250,7 @@ MSBuild 编不了 —— 直接 cl，别在 SDK 版本和工程路径上耗。
 
 想自己复现的话：先让它不碍事（stub），再注入改好的 Dumper-7，dump 出来，F6 卸掉。
 
-改完的文件在 `dumper7-patch/`，EAC 那部分的代码在 `eac-bypass/`，分析脚本在 `tools/`，SDK 在 `sdk/`。
+改完的文件在 `2026.10.13/dumper7-patch/`，EAC 那部分的代码在 `2026.10.13/eac-bypass/`，分析脚本在 `2026.10.13/tools/`，SDK 在 `2026.10.13/sdk/`。
 
 有用就点个 star，没用就算了，主要给自己留档。
 

@@ -2,7 +2,7 @@
 
 Straight up first: these are my own analysis notes. It started because I wanted to see what EAC is actually doing. This is not a cheat, and it does not teach you how to cheat. Don't come to me if you get kicked or banned. Don't use it in online ranked. Repost freely — just keep this paragraph.
 
-> 中文版见 [README.md](old/README.md).
+> 中文版见 [README.md](README.md).
 
 ---
 
@@ -48,7 +48,7 @@ GameVersion=5.5.0
 
 ### Source changes
 
-All the modified files are in `old/dumper7-patch/`. Just these few:
+All the modified files are in `2026.10.13/dumper7-patch/`. Just these few:
 
 `Settings.h` / `Settings.cpp`: added a `GNamesOffset` config entry. Note you have to parse it with `strtoul(..., 16)` — `GetPrivateProfileIntA` doesn't understand hex, so `0x6EB2C00` reads back as 0. Also read `GameName`/`GameVersion` while I was in there.
 
@@ -113,7 +113,7 @@ I normally use the first one.
 
 ### Implementation
 
-The code is in `old/eac-bypass/`. I wrote a loader that does this:
+The code is in `2026.10.13/eac-bypass/`. I wrote a loader that does this:
 
 Launch the game (`Launch=direct` starts the exe directly; `Launch=eac` starts the EAC service first, then the game), then inject the payload before EAC has its callbacks in place.
 
@@ -121,7 +121,7 @@ Inside the game process, the payload:
 
 Patches the import tables (IAT, delay imports and export table) to replace all 8 anti-cheat functions; watches `CreateProcessW` and blocks the game from relaunching into the EAC bootstrapper itself (`BlockRelaunch=1`); also blocks `CrashReportClient.exe` — on a crash it uploads a minidump containing the module list, and that must not run; finally it unlinks itself from the PEB module list.
 
-The config looks like this; examples are in `old/eac-bypass/cfg/`:
+The config looks like this; examples are in `2026.10.13/eac-bypass/cfg/`:
 
 ```ini
 Launch=direct      ; direct=launch the game directly / eac=start the EAC service first
@@ -179,7 +179,7 @@ OpenProcess(PROCESS_ALL_ACCESS) → succeeds (after elevating)
 
 Even a raw syscall is denied, so the block is in the kernel — no amount of user-mode trickery helps. Elevation doesn't help either: you get the handle, but not the read.
 
-`old/tools/read_routes.py` is what tests this; reproduce it yourself.
+`2026.10.13/tools/read_routes.py` is what tests this; reproduce it yourself.
 
 So the situation is:
 
@@ -220,7 +220,7 @@ Class names: the player is `RBPlayer`, NPCs are `RBNPC`, the player controller i
 
 Also, entries with the `Default__` prefix are class default objects (CDOs) — they're not in the scene, so filter them out, otherwise your list is nothing but those.
 
-The full SDK is in `old/sdk/` — 1,400+ CppSDK files, plus the UE usmap and an idmap for IDA. Just search it directly.
+The full SDK is in `2026.10.13/sdk/` — 1,400+ CppSDK files, plus the UE usmap and an idmap for IDA. Just search it directly.
 
 ---
 
@@ -250,7 +250,7 @@ Block crash reporting — `CrashReportClient.exe` uploads a minidump with the mo
 
 To reproduce it yourself: neutralize the anti-cheat first (stub), inject the patched Dumper-7, dump, then F6 to unload.
 
-The patched files are in `old/dumper7-patch/`, the EAC code is in `old/eac-bypass/`, the analysis scripts are in `old/tools/`, and the SDK is in `old/sdk/`.
+The patched files are in `2026.10.13/dumper7-patch/`, the EAC code is in `2026.10.13/eac-bypass/`, the analysis scripts are in `2026.10.13/tools/`, and the SDK is in `2026.10.13/sdk/`.
 
 Star it if it's useful, skip it if not — it's mainly a record for myself.
 
